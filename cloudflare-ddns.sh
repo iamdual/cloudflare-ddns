@@ -33,10 +33,17 @@ for arg in "$@"; do
   if [ "$arg" = "--debug" ]; then DEBUG=1; fi
 done
 
-PUBLIC_IP=$(curl --silent "https://checkip.amazonaws.com/" | xargs)
-if [ "$PUBLIC_IP" = "" ]; then
-  PUBLIC_IP=$(curl --silent "https://ifconfig.me/" | xargs)
-fi
+services=(
+  "https://checkip.amazonaws.com/"
+  "https://icanhazip.com/"
+  "https://ifconfig.me/ip"
+)
+for service in "${services[@]}"; do
+  PUBLIC_IP=$(curl --silent --max-time 2 "$service" | xargs)
+  if [ -n "$PUBLIC_IP" ]; then
+    break
+  fi
+done
 
 if [ "$DEBUG" -eq 1 ]; then
   printf "Public IP detected: %s\n\n" "$PUBLIC_IP"
