@@ -1,7 +1,8 @@
 #!/bin/bash
 # Cloudflare Dynamic DNS is keeps server's IP address constantly being updated in the DNS records.
-# Author: Ekin Karadeniz (iamdual@icloud.com)
-# Link  : https://github.com/iamdual/cloudflare-ddns
+# Author  : Ekin Karadeniz (iamdual@icloud.com)
+# Link    : https://github.com/iamdual/cloudflare-ddns
+# Version : 2022-07-29
 
 which curl &>/dev/null
 if [ $? -ne 0 ]; then
@@ -24,20 +25,30 @@ DOMAIN=$2
 
 TYPE="A"
 PROXY="false"
+DEBUG=0
 
 for arg in "$@"; do
   if [ "$arg" = "--ipv6" ]; then TYPE="AAAA"; fi
   if [ "$arg" = "--proxy" ]; then PROXY="true"; fi
+  if [ "$arg" = "--debug" ]; then DEBUG=1; fi
 done
 
-PUBLIC_IP=$(curl --silent "https://checkip.amazonaws.comm/" | xargs)
+PUBLIC_IP=$(curl --silent "https://checkip.amazonaws.com/" | xargs)
 if [ "$PUBLIC_IP" = "" ]; then
   PUBLIC_IP=$(curl --silent "https://ifconfig.me/" | xargs)
+fi
+
+if [ "$DEBUG" -eq 1 ]; then
+  printf "Public IP detected: %s\n\n" "$PUBLIC_IP"
 fi
 
 # List DNS records
 dns_records=$(curl --silent --request GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
   --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
+
+if [ "$DEBUG" -eq 1 ]; then
+  printf "Response of DNS records: \n%s\n\n" "$dns_records"
+fi
 
 # Obtain the DNS record ID from the API response
 RECORD_ID=""
@@ -51,12 +62,55 @@ while IFS= read -r match; do
 done < <(echo "$dns_records_matches")
 
 if [ "$RECORD_ID" = "" ]; then
-  echo "No DNS record ID found. Make sure the domain name is correct."
-  exit 1
+
+  # Create a DNS record if no record found
+
+  output_to="/dev/null"
+  if [ "$DEBUG" -eq 1 ]; then
+    output_to="/tmp/.debug-createRecord"
+  fi
+
+  result=$(curl --silent --request POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+    --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    --header 'Content-Type: application/json' \
+    --data-raw "{\"type\":\"$TYPE\",\"name\":\"$DOMAIN\",\"content\":\"$PUBLIC_IP\",\"ttl\":1,\"proxied\":$PROXY}" \
+    --output "$output_to" --write-out "%{http_code}")
+
+  if [ "$result" = "200" ]; then
+    echo "Record created successfully."
+    exit 0
+  else
+    echo "Record cannot be created!"
+    if [ "$DEBUG" -eq 1 ]; then
+      printf "\nResponse of the create DNS record: \n%s\n" "$(cat $output_to)"
+    fi
+  fi
+
+else
+
+  # Update the DNS record
+
+  output_to="/dev/null"
+  if [ "$DEBUG" -eq 1 ]; then
+    output_to="/tmp/.debug-updateRecord"
+  fi
+
+  result=$(curl --silent --request PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+    --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    --header 'Content-Type: application/json' \
+    --data-raw "{\"type\":\"$TYPE\",\"name\":\"$DOMAIN\",\"content\":\"$PUBLIC_IP\",\"ttl\":1,\"proxied\":$PROXY}" \
+    --output "$output_to" --write-out "%{http_code}")
+
+  if [ "$result" = "200" ]; then
+    echo "Record updated successfully."
+    exit 0
+  else
+    echo "Record cannot be updated!"
+    if [ "$DEBUG" -eq 1 ]; then
+      printf "\nResponse of the update DNS record: \n%s\n" "$(cat $output_to)"
+    fi
+  fi
+
 fi
 
-# Update the DNS record
-curl --silent --request PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
-  --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-  --header 'Content-Type: application/json' \
-  --data-raw "{\"type\":\"$TYPE\",\"name\":\"$DOMAIN\",\"content\":\"$PUBLIC_IP\",\"ttl\":1,\"proxied\":$PROXY}"
+exit 1

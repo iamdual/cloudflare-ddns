@@ -13,6 +13,7 @@ export CLOUDFLARE_API_TOKEN="CLOUDFLARE-API-TOKEN"
 ### Parameters
 * `--ipv6`: Set IP address format IPv6
 * `--proxy`: Enable proxy for DNS record
+* `--debug`: Enable debug
 ```bash
 ./cloudflare-ddns.sh "ZONE-ID" "DOMAIN-NAME" --ipv6
 ```
